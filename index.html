@@ -1,0 +1,992 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MijnCruise - Scheepvaart Tracker Nederland</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚢</text></svg>">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="anonymous" />
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0a0f1a;
+            color: #e2e8f0;
+            overflow: hidden;
+        }
+        .app-container { display: flex; height: 100vh; }
+        
+        .sidebar {
+            width: 380px;
+            background: linear-gradient(180deg, #0d1525 0%, #0a0f1a 100%);
+            border-right: 1px solid #1c2d4a;
+            display: flex;
+            flex-direction: column;
+            z-index: 1000;
+            flex-shrink: 0;
+        }
+        .sidebar-header {
+            padding: 28px 24px;
+            background: linear-gradient(135deg, #0c4a6e 0%, #0369a1 100%);
+            position: relative;
+            overflow: hidden;
+        }
+        .sidebar-header::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            right: -50%;
+            width: 100%;
+            height: 200%;
+            background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 60%);
+        }
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            position: relative;
+            z-index: 1;
+        }
+        .logo-icon {
+            width: 56px;
+            height: 56px;
+            background: linear-gradient(135deg, #0ea5e9 0%, #38bdf8 100%);
+            border-radius: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 28px;
+            box-shadow: 0 8px 24px rgba(14, 165, 233, 0.4);
+        }
+        .logo-text h1 { font-size: 26px; font-weight: 700; color: #fff; }
+        .logo-text p { font-size: 13px; color: rgba(255,255,255,0.7); margin-top: 2px; }
+        
+        .connection-status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 20px;
+            background: #0a0f1a;
+            border-bottom: 1px solid #1c2d4a;
+            font-size: 12px;
+        }
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #f59e0b;
+            animation: pulse 2s infinite;
+        }
+        .status-dot.connected { background: #22c55e; animation: none; }
+        .status-dot.error { background: #ef4444; animation: none; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+        .status-text { color: #64748b; }
+        .status-text.connected { color: #22c55e; }
+        .db-count { margin-left: auto; color: #64748b; font-size: 11px; }
+        
+        .stats-bar {
+            display: flex;
+            background: #0d1525;
+            border-bottom: 1px solid #1c2d4a;
+        }
+        .stat-item {
+            flex: 1;
+            padding: 16px;
+            text-align: center;
+            border-right: 1px solid #1c2d4a;
+        }
+        .stat-item:last-child { border-right: none; }
+        .stat-value { font-size: 28px; font-weight: 700; color: #0ea5e9; }
+        .stat-label {
+            font-size: 10px;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-top: 4px;
+        }
+        
+        .filter-section {
+            padding: 16px 20px;
+            border-bottom: 1px solid #1c2d4a;
+        }
+        .filter-label {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #64748b;
+            margin-bottom: 10px;
+        }
+        .filter-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+        .filter-chip {
+            padding: 8px 14px;
+            background: #131d2e;
+            border: 1px solid #1c2d4a;
+            border-radius: 24px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+            color: #94a3b8;
+        }
+        .filter-chip:hover { background: #1c2d4a; color: #e2e8f0; }
+        .filter-chip.active {
+            background: linear-gradient(135deg, #0c4a6e 0%, #0369a1 100%);
+            border-color: #0ea5e9;
+            color: #fff;
+        }
+
+        .search-box {
+            padding: 12px 20px;
+            border-bottom: 1px solid #1c2d4a;
+        }
+        .search-input {
+            width: 100%;
+            padding: 10px 14px;
+            background: #131d2e;
+            border: 1px solid #1c2d4a;
+            border-radius: 10px;
+            color: #e2e8f0;
+            font-size: 14px;
+        }
+        .search-input:focus {
+            outline: none;
+            border-color: #0ea5e9;
+        }
+        .search-input::placeholder { color: #64748b; }
+        
+        .ship-list-container {
+            flex: 1;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+        .ship-list-header {
+            padding: 16px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #1c2d4a;
+        }
+        .ship-list-title { font-size: 15px; font-weight: 600; }
+        .ship-count {
+            font-size: 12px;
+            color: #64748b;
+            background: #131d2e;
+            padding: 4px 10px;
+            border-radius: 12px;
+        }
+        .ship-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 12px;
+        }
+        .ship-list::-webkit-scrollbar { width: 6px; }
+        .ship-list::-webkit-scrollbar-track { background: #0a0f1a; }
+        .ship-list::-webkit-scrollbar-thumb { background: #1c2d4a; border-radius: 3px; }
+        
+        .ship-card {
+            background: linear-gradient(135deg, #131d2e 0%, #0d1525 100%);
+            border-radius: 12px;
+            padding: 14px;
+            margin-bottom: 10px;
+            cursor: pointer;
+            transition: all 0.3s;
+            border: 1px solid #1c2d4a;
+        }
+        .ship-card:hover {
+            border-color: #0ea5e9;
+            transform: translateX(4px);
+        }
+        .ship-card.selected {
+            border-color: #0ea5e9;
+            background: linear-gradient(135deg, #0c1a2e 0%, #0d1525 100%);
+        }
+        .ship-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 10px;
+        }
+        .ship-name { font-weight: 600; font-size: 14px; color: #fff; }
+        .ship-mmsi { font-size: 11px; color: #64748b; margin-top: 2px; }
+        .ship-type-badge {
+            padding: 3px 8px;
+            border-radius: 6px;
+            font-size: 9px;
+            text-transform: uppercase;
+            font-weight: 600;
+        }
+        .type-cargo { background: rgba(34, 197, 94, 0.2); color: #4ade80; }
+        .type-tanker { background: rgba(239, 68, 68, 0.2); color: #f87171; }
+        .type-passenger { background: rgba(168, 85, 247, 0.2); color: #c084fc; }
+        .type-tug { background: rgba(251, 191, 36, 0.2); color: #fbbf24; }
+        .type-fishing { background: rgba(6, 182, 212, 0.2); color: #22d3ee; }
+        .type-other { background: rgba(148, 163, 184, 0.2); color: #94a3b8; }
+        
+        .ship-details {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+            font-size: 11px;
+        }
+        .ship-detail-label { color: #64748b; }
+        .ship-detail-value { color: #e2e8f0; font-weight: 500; }
+
+        .no-ships {
+            text-align: center;
+            padding: 40px 20px;
+            color: #64748b;
+        }
+        .no-ships-icon { font-size: 48px; margin-bottom: 16px; }
+        
+        .map-container { flex: 1; position: relative; }
+        #map { width: 100%; height: 100%; background: #0a0f1a; }
+        
+        .map-controls {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .map-btn {
+            width: 44px;
+            height: 44px;
+            background: rgba(13, 21, 37, 0.95);
+            border: 1px solid #1c2d4a;
+            border-radius: 12px;
+            color: #e2e8f0;
+            cursor: pointer;
+            font-size: 18px;
+            transition: all 0.2s;
+        }
+        .map-btn:hover { background: #1c2d4a; border-color: #0ea5e9; }
+        
+        .info-panel {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            right: 20px;
+            background: rgba(13, 21, 37, 0.95);
+            backdrop-filter: blur(20px);
+            border: 1px solid #1c2d4a;
+            border-radius: 20px;
+            padding: 24px;
+            z-index: 1000;
+            display: none;
+        }
+        .info-panel.visible { display: block; }
+        .info-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 20px;
+        }
+        .info-title-section h2 { font-size: 22px; font-weight: 700; color: #fff; }
+        .info-title-section p { font-size: 13px; color: #64748b; margin-top: 4px; }
+        .info-close {
+            background: #1c2d4a;
+            border: none;
+            color: #94a3b8;
+            cursor: pointer;
+            font-size: 20px;
+            width: 36px;
+            height: 36px;
+            border-radius: 10px;
+        }
+        .info-close:hover { background: #0ea5e9; color: #fff; }
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(6, 1fr);
+            gap: 12px;
+        }
+        .info-item {
+            text-align: center;
+            padding: 14px;
+            background: #131d2e;
+            border-radius: 10px;
+        }
+        .info-item-value { font-size: 20px; font-weight: 700; color: #0ea5e9; }
+        .info-item-label { font-size: 9px; color: #64748b; text-transform: uppercase; margin-top: 4px; }
+        
+        .leaflet-container { background: #0a0f1a; }
+        .leaflet-control-zoom { display: none; }
+        .leaflet-control-attribution {
+            background: rgba(13, 21, 37, 0.9) !important;
+            color: #64748b !important;
+            font-size: 10px !important;
+        }
+        .leaflet-control-attribution a { color: #0ea5e9 !important; }
+        .ship-icon { background: none !important; border: none !important; }
+        .leaflet-popup-content-wrapper {
+            background: rgba(13, 21, 37, 0.95);
+            color: #e2e8f0;
+            border-radius: 12px;
+            border: 1px solid #1c2d4a;
+        }
+        .leaflet-popup-tip { background: #0d1525; }
+        .leaflet-popup-content { margin: 14px; }
+
+        @media (max-width: 900px) {
+            .sidebar { display: none; }
+            .info-grid { grid-template-columns: repeat(3, 1fr); }
+        }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <div class="logo-icon">🚢</div>
+                    <div class="logo-text">
+                        <h1>MijnCruise</h1>
+                        <p>Scheepvaart Tracker Nederland</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="connection-status">
+                <div class="status-dot" id="status-dot"></div>
+                <span class="status-text" id="status-text">Verbinden...</span>
+                <span class="db-count" id="db-count">📦 0 schepen opgeslagen</span>
+            </div>
+
+            <div class="stats-bar">
+                <div class="stat-item">
+                    <div class="stat-value" id="total-ships">0</div>
+                    <div class="stat-label">Live</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value" id="moving-ships">0</div>
+                    <div class="stat-label">Varend</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value" id="moored-ships">0</div>
+                    <div class="stat-label">Stilstaand</div>
+                </div>
+            </div>
+
+            <div class="filter-section">
+                <div class="filter-label">Filter op type</div>
+                <div class="filter-chips" id="type-filters">
+                    <div class="filter-chip active" data-type="all">Alle</div>
+                    <div class="filter-chip" data-type="passenger">🚢 Cruise</div>
+                    <div class="filter-chip" data-type="cargo">📦 Cargo</div>
+                    <div class="filter-chip" data-type="tanker">🛢️ Tanker</div>
+                    <div class="filter-chip" data-type="tug">⚓ Sleep</div>
+                </div>
+            </div>
+
+            <div class="search-box">
+                <input type="text" class="search-input" id="search-input" placeholder="🔍 Zoek schip op naam of MMSI...">
+            </div>
+
+            <div class="ship-list-container">
+                <div class="ship-list-header">
+                    <span class="ship-list-title">Schepen in zicht</span>
+                    <span class="ship-count" id="ship-count">0</span>
+                </div>
+                <div class="ship-list" id="ship-list">
+                    <div class="no-ships">
+                        <div class="no-ships-icon">📡</div>
+                        <p>Wachten op schepen...</p>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <main class="map-container">
+            <div id="map"></div>
+            <div class="map-controls">
+                <button class="map-btn" id="zoom-in">+</button>
+                <button class="map-btn" id="zoom-out">−</button>
+                <button class="map-btn" id="center-map">🇳🇱</button>
+                <button class="map-btn" id="clear-db" title="Wis opgeslagen schepen">🗑️</button>
+            </div>
+            <div class="info-panel" id="info-panel">
+                <div class="info-header">
+                    <div class="info-title-section">
+                        <h2 id="panel-name">Schip</h2>
+                        <p id="panel-mmsi">MMSI: -</p>
+                    </div>
+                    <button class="info-close" id="close-panel">×</button>
+                </div>
+                <div class="info-grid">
+                    <div class="info-item">
+                        <div class="info-item-value" id="panel-speed">0</div>
+                        <div class="info-item-label">Knopen</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-item-value" id="panel-heading">-</div>
+                        <div class="info-item-label">Koers</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-item-value" id="panel-length">-</div>
+                        <div class="info-item-label">Lengte</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-item-value" id="panel-type">-</div>
+                        <div class="info-item-label">Type</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-item-value" id="panel-destination">-</div>
+                        <div class="info-item-label">Bestemming</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-item-value" id="panel-flag">-</div>
+                        <div class="info-item-label">Vlag</div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin="anonymous"></script>
+    <script>
+        (function() {
+            'use strict';
+
+            var WORKER_URL = 'wss://maasvlakte2.yildirim-bayrak-bfb.workers.dev';
+            var messageCount = 0;
+
+            // Ship type classification
+            function getShipCategory(typeCode) {
+                if (!typeCode) return 'other';
+                if (typeCode >= 60 && typeCode <= 69) return 'passenger';
+                if (typeCode >= 70 && typeCode <= 79) return 'cargo';
+                if (typeCode >= 80 && typeCode <= 89) return 'tanker';
+                if (typeCode >= 31 && typeCode <= 32) return 'tug';
+                if (typeCode >= 50 && typeCode <= 59) return 'tug';
+                if (typeCode === 30) return 'fishing';
+                return 'other';
+            }
+
+            function getShipTypeName(typeCode) {
+                var cat = getShipCategory(typeCode);
+                var names = {
+                    passenger: 'Passagier',
+                    cargo: 'Cargo',
+                    tanker: 'Tanker',
+                    tug: 'Sleepboot',
+                    fishing: 'Visserij',
+                    other: 'Overig'
+                };
+                return names[cat] || 'Overig';
+            }
+
+            function getShipColor(typeCode) {
+                var colors = {
+                    passenger: '#a855f7',
+                    cargo: '#22c55e',
+                    tanker: '#ef4444',
+                    tug: '#f59e0b',
+                    fishing: '#06b6d4',
+                    other: '#64748b'
+                };
+                return colors[getShipCategory(typeCode)] || '#64748b';
+            }
+
+            // Ship database (localStorage)
+            var shipDatabase = {};
+            
+            function loadDatabase() {
+                try {
+                    var saved = localStorage.getItem('mijncruise_ships');
+                    if (saved) {
+                        shipDatabase = JSON.parse(saved);
+                        console.log('Loaded', Object.keys(shipDatabase).length, 'ships from database');
+                    }
+                } catch(e) {
+                    console.log('Could not load database');
+                }
+                updateDbCount();
+            }
+
+            function saveDatabase() {
+                try {
+                    localStorage.setItem('mijncruise_ships', JSON.stringify(shipDatabase));
+                } catch(e) {
+                    console.log('Could not save database');
+                }
+                updateDbCount();
+            }
+
+            function updateDbCount() {
+                var count = Object.keys(shipDatabase).length;
+                document.getElementById('db-count').textContent = '📦 ' + count + ' opgeslagen';
+            }
+
+            function saveShipInfo(mmsi, info) {
+                if (!shipDatabase[mmsi]) {
+                    shipDatabase[mmsi] = {};
+                }
+                if (info.name && info.name.trim()) {
+                    shipDatabase[mmsi].name = info.name.trim();
+                }
+                if (info.type) {
+                    shipDatabase[mmsi].type = info.type;
+                }
+                if (info.destination && info.destination.trim()) {
+                    shipDatabase[mmsi].destination = info.destination.trim();
+                }
+                if (info.length) {
+                    shipDatabase[mmsi].length = info.length;
+                }
+                if (Math.random() < 0.1) {
+                    saveDatabase();
+                }
+            }
+
+            function getShipInfo(mmsi) {
+                return shipDatabase[mmsi] || {};
+            }
+
+            // Get country flag from MMSI
+            function getFlag(mmsi) {
+                var mid = String(mmsi).substring(0, 3);
+                var flags = {
+                    '244': '🇳🇱', '245': '🇳🇱', '246': '🇳🇱',
+                    '211': '🇩🇪', '218': '🇩🇪', '219': '🇩🇪',
+                    '224': '🇪🇸', '225': '🇪🇸',
+                    '226': '🇫🇷', '227': '🇫🇷', '228': '🇫🇷',
+                    '229': '🇲🇹', '230': '🇵🇹',
+                    '231': '🇬🇧', '232': '🇬🇧', '233': '🇬🇧', '234': '🇬🇧', '235': '🇬🇧',
+                    '236': '🇬🇮', '240': '🇬🇷', '241': '🇬🇷',
+                    '244': '🇳🇱', '245': '🇳🇱', '246': '🇳🇱',
+                    '247': '🇮🇹', '248': '🇮🇹', '249': '🇲🇹',
+                    '250': '🇮🇪', '251': '🇮🇸', '256': '🇲🇹',
+                    '257': '🇳🇴', '258': '🇳🇴', '259': '🇳🇴',
+                    '261': '🇵🇱', '263': '🇵🇹',
+                    '265': '🇸🇪', '266': '🇸🇪',
+                    '269': '🇨🇭', '270': '🇨🇿',
+                    '271': '🇹🇷', '272': '🇹🇷', '273': '🇹🇷',
+                    '274': '🇺🇦', '275': '🇱🇻', '276': '🇪🇪', '277': '🇱🇹',
+                    '278': '🇸🇮', '279': '🇭🇷',
+                    '303': '🇺🇸', '304': '🇺🇸', '305': '🇺🇸', '338': '🇺🇸',
+                    '306': '🇧🇸', '308': '🇧🇸', '309': '🇧🇸', '311': '🇧🇸',
+                    '312': '🇵🇦', '351': '🇵🇦', '352': '🇵🇦', '353': '🇵🇦',
+                    '354': '🇵🇦', '355': '🇵🇦', '356': '🇵🇦', '357': '🇵🇦',
+                    '370': '🇵🇦', '371': '🇵🇦', '372': '🇵🇦', '373': '🇵🇦', '374': '🇵🇦',
+                    '375': '🇸🇻', '376': '🇧🇿', '377': '🇻🇬', '378': '🇰🇾', '319': '🇰🇾',
+                    '412': '🇨🇳', '413': '🇨🇳', '414': '🇨🇳',
+                    '416': '🇹🇼', '417': '🇸🇬', '419': '🇸🇬',
+                    '431': '🇯🇵', '432': '🇯🇵',
+                    '440': '🇰🇷', '441': '🇰🇷',
+                    '477': '🇭🇰',
+                    '533': '🇲🇭', '538': '🇲🇭',
+                    '563': '🇸🇬', '564': '🇸🇬', '565': '🇸🇬', '566': '🇸🇬'
+                };
+                return flags[mid] || '🏳️';
+            }
+
+            var map, markers = {}, liveShips = {}, selectedShip = null;
+            var activeType = 'all', searchQuery = '';
+            var ws = null;
+
+            // Initialize map - centered on Maasvlakte
+            map = L.map('map', { center: [51.95, 4.05], zoom: 11, zoomControl: false });
+            
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                attribution: '© OpenStreetMap, © CARTO',
+                maxZoom: 19
+            }).addTo(map);
+
+            // Create ship icon
+            function createShipIcon(ship) {
+                var color = getShipColor(ship.type);
+                var size = 24;
+                var heading = ship.heading || ship.course || 0;
+                
+                var svg = '<svg width="' + size + '" height="' + size + '" viewBox="0 0 24 24" style="filter: drop-shadow(0 2px 3px rgba(0,0,0,0.5)); transform: rotate(' + heading + 'deg);">' +
+                    '<path d="M12 2L4 20h3l1-3h8l1 3h3L12 2z" fill="' + color + '" stroke="#fff" stroke-width="0.8"/>' +
+                    '</svg>';
+                return L.divIcon({ 
+                    className: 'ship-icon', 
+                    html: svg, 
+                    iconSize: [size, size], 
+                    iconAnchor: [size/2, size/2] 
+                });
+            }
+
+            function updateShipMarker(data) {
+                var mmsi = data.mmsi;
+                var lat = data.lat;
+                var lng = data.lng;
+
+                if (!mmsi || !lat || !lng) {
+                    console.log('Missing data:', data);
+                    return;
+                }
+
+                // Get saved info
+                var savedInfo = getShipInfo(mmsi);
+                
+                // Merge with incoming data
+                var ship = {
+                    mmsi: mmsi,
+                    lat: lat,
+                    lng: lng,
+                    speed: data.speed || 0,
+                    course: data.course || 0,
+                    heading: data.heading || data.course || 0,
+                    name: data.name || savedInfo.name || '',
+                    type: data.type || savedInfo.type || 0,
+                    destination: data.destination || savedInfo.destination || '',
+                    length: data.length || savedInfo.length || 0,
+                    lastUpdate: Date.now()
+                };
+
+                // Save new info to database
+                if (data.name || data.type || data.destination || data.length) {
+                    saveShipInfo(mmsi, {
+                        name: data.name,
+                        type: data.type,
+                        destination: data.destination,
+                        length: data.length
+                    });
+                }
+
+                liveShips[mmsi] = ship;
+
+                // Update or create marker
+                if (markers[mmsi]) {
+                    markers[mmsi].setLatLng([lat, lng]);
+                    markers[mmsi].setIcon(createShipIcon(ship));
+                } else {
+                    var marker = L.marker([lat, lng], { icon: createShipIcon(ship) }).addTo(map);
+                    marker.on('click', function() { selectShip(liveShips[mmsi]); });
+                    markers[mmsi] = marker;
+                    console.log('New ship added:', mmsi, ship.name || 'Unknown');
+                }
+
+                updateMarkerPopup(mmsi);
+                updateUI();
+            }
+
+            function updateMarkerPopup(mmsi) {
+                var ship = liveShips[mmsi];
+                if (!ship || !markers[mmsi]) return;
+
+                var name = ship.name || 'Onbekend schip';
+                var flag = getFlag(mmsi);
+                var typeName = getShipTypeName(ship.type);
+
+                markers[mmsi].bindPopup(
+                    '<div style="font-weight:700;font-size:14px;">' + flag + ' ' + name + '</div>' +
+                    '<div style="font-size:11px;color:#64748b;margin-bottom:8px;">MMSI: ' + mmsi + ' • ' + typeName + '</div>' +
+                    '<div style="font-size:12px;color:#94a3b8;">' +
+                    '<strong>Snelheid:</strong> ' + (ship.speed || 0).toFixed(1) + ' kn<br>' +
+                    '<strong>Koers:</strong> ' + (ship.heading || 0) + '°<br>' +
+                    '<strong>Bestemming:</strong> ' + (ship.destination || '-') + '</div>'
+                );
+            }
+
+            function selectShip(ship) {
+                selectedShip = ship;
+                var savedInfo = getShipInfo(ship.mmsi);
+                var name = ship.name || savedInfo.name || 'Onbekend schip';
+                var flag = getFlag(ship.mmsi);
+
+                document.getElementById('info-panel').classList.add('visible');
+                document.getElementById('panel-name').textContent = flag + ' ' + name;
+                document.getElementById('panel-mmsi').textContent = 'MMSI: ' + ship.mmsi;
+                document.getElementById('panel-speed').textContent = (ship.speed || 0).toFixed(1);
+                document.getElementById('panel-heading').textContent = (ship.heading || ship.course || 0) + '°';
+                document.getElementById('panel-length').textContent = ship.length ? ship.length + 'm' : '-';
+                document.getElementById('panel-type').textContent = getShipTypeName(ship.type);
+                document.getElementById('panel-destination').textContent = ship.destination || '-';
+                document.getElementById('panel-flag').textContent = flag;
+
+                map.setView([ship.lat, ship.lng], 14);
+                updateShipList();
+            }
+
+            function filterShips() {
+                return Object.values(liveShips).filter(function(ship) {
+                    if (activeType !== 'all') {
+                        if (getShipCategory(ship.type) !== activeType) return false;
+                    }
+                    if (searchQuery) {
+                        var name = (ship.name || '').toLowerCase();
+                        var mmsi = String(ship.mmsi);
+                        var q = searchQuery.toLowerCase();
+                        if (!name.includes(q) && !mmsi.includes(q)) return false;
+                    }
+                    return true;
+                });
+            }
+
+            function updateShipList() {
+                var list = document.getElementById('ship-list');
+                var ships = filterShips();
+                
+                ships.sort(function(a, b) {
+                    var nameA = a.name || getShipInfo(a.mmsi).name || '';
+                    var nameB = b.name || getShipInfo(b.mmsi).name || '';
+                    if (nameA && !nameB) return -1;
+                    if (!nameA && nameB) return 1;
+                    return (nameA || String(a.mmsi)).localeCompare(nameB || String(b.mmsi));
+                });
+
+                if (ships.length === 0) {
+                    list.innerHTML = '<div class="no-ships"><div class="no-ships-icon">🔍</div><p>Geen schepen gevonden</p></div>';
+                    document.getElementById('ship-count').textContent = '0';
+                    return;
+                }
+
+                var displayShips = ships.slice(0, 100);
+
+                list.innerHTML = displayShips.map(function(ship) {
+                    var savedInfo = getShipInfo(ship.mmsi);
+                    var name = ship.name || savedInfo.name || 'Onbekend';
+                    var flag = getFlag(ship.mmsi);
+                    var category = getShipCategory(ship.type);
+                    var typeName = getShipTypeName(ship.type);
+                    var isSelected = selectedShip && selectedShip.mmsi === ship.mmsi;
+                    
+                    return '<div class="ship-card' + (isSelected ? ' selected' : '') + '" data-mmsi="' + ship.mmsi + '">' +
+                        '<div class="ship-header">' +
+                            '<div><div class="ship-name">' + flag + ' ' + name + '</div>' +
+                            '<div class="ship-mmsi">MMSI: ' + ship.mmsi + '</div></div>' +
+                            '<span class="ship-type-badge type-' + category + '">' + typeName + '</span>' +
+                        '</div>' +
+                        '<div class="ship-details">' +
+                            '<div><div class="ship-detail-label">Snelheid</div><div class="ship-detail-value">' + (ship.speed || 0).toFixed(1) + ' kn</div></div>' +
+                            '<div><div class="ship-detail-label">Koers</div><div class="ship-detail-value">' + (ship.heading || 0) + '°</div></div>' +
+                            '<div><div class="ship-detail-label">Bestemming</div><div class="ship-detail-value">' + (ship.destination || '-') + '</div></div>' +
+                        '</div></div>';
+                }).join('');
+
+                list.querySelectorAll('.ship-card').forEach(function(card) {
+                    card.onclick = function() {
+                        var ship = liveShips[card.dataset.mmsi];
+                        if (ship) selectShip(ship);
+                    };
+                });
+
+                document.getElementById('ship-count').textContent = ships.length + (ships.length > 100 ? '+' : '');
+            }
+
+            function updateStats() {
+                var ships = Object.values(liveShips);
+                var moving = ships.filter(function(s) { return (s.speed || 0) >= 0.5; }).length;
+                
+                document.getElementById('total-ships').textContent = ships.length;
+                document.getElementById('moving-ships').textContent = moving;
+                document.getElementById('moored-ships').textContent = ships.length - moving;
+            }
+
+            function updateMarkerVisibility() {
+                var validShips = filterShips();
+                var validMmsis = {};
+                validShips.forEach(function(s) { validMmsis[s.mmsi] = true; });
+
+                Object.keys(markers).forEach(function(mmsi) {
+                    if (validMmsis[mmsi]) {
+                        if (!map.hasLayer(markers[mmsi])) markers[mmsi].addTo(map);
+                    } else {
+                        if (map.hasLayer(markers[mmsi])) map.removeLayer(markers[mmsi]);
+                    }
+                });
+            }
+
+            var updatePending = false;
+            function updateUI() {
+                updateStats();
+                if (!updatePending) {
+                    updatePending = true;
+                    setTimeout(function() {
+                        updateShipList();
+                        updatePending = false;
+                    }, 500);
+                }
+            }
+
+            // Clean up old ships
+            setInterval(function() {
+                var now = Date.now();
+                var timeout = 5 * 60 * 1000;
+                Object.keys(liveShips).forEach(function(mmsi) {
+                    if (now - liveShips[mmsi].lastUpdate > timeout) {
+                        delete liveShips[mmsi];
+                        if (markers[mmsi]) {
+                            map.removeLayer(markers[mmsi]);
+                            delete markers[mmsi];
+                        }
+                    }
+                });
+                updateUI();
+            }, 60000);
+
+            // WebSocket connection
+            function connectWebSocket() {
+                setConnectionStatus('connecting');
+                
+                try {
+                    ws = new WebSocket(WORKER_URL);
+                } catch(e) {
+                    console.error('WebSocket creation failed:', e);
+                    setConnectionStatus('error');
+                    setTimeout(connectWebSocket, 5000);
+                    return;
+                }
+
+                ws.onopen = function() {
+                    console.log('Connected to AIS stream');
+                    setConnectionStatus('connected');
+                };
+
+                ws.onmessage = function(event) {
+                    messageCount++;
+                    if (messageCount <= 5 || messageCount % 100 === 0) {
+                        console.log('Message #' + messageCount + ':', event.data.substring(0, 200));
+                    }
+                    
+                    try {
+                        var data = JSON.parse(event.data);
+                        handleAISMessage(data);
+                    } catch (e) {
+                        console.error('Parse error:', e);
+                    }
+                };
+
+                ws.onerror = function(error) {
+                    console.error('WebSocket error:', error);
+                    setConnectionStatus('error');
+                };
+
+                ws.onclose = function() {
+                    console.log('WebSocket closed, reconnecting...');
+                    setConnectionStatus('disconnected');
+                    setTimeout(connectWebSocket, 3000);
+                };
+            }
+
+            function handleAISMessage(data) {
+                // Handle AISStream format
+                if (data.MessageType && data.Message) {
+                    var msg = data.Message;
+                    var meta = data.MetaData || {};
+                    
+                    if (data.MessageType === 'PositionReport') {
+                        var shipData = {
+                            mmsi: meta.MMSI || msg.UserID,
+                            lat: msg.Latitude,
+                            lng: msg.Longitude,
+                            speed: msg.Sog,
+                            course: msg.Cog,
+                            heading: msg.TrueHeading !== 511 ? msg.TrueHeading : msg.Cog,
+                            name: meta.ShipName,
+                            type: meta.ShipType
+                        };
+                        console.log('Position:', shipData.mmsi, 'lat:', shipData.lat, 'lng:', shipData.lng);
+                        updateShipMarker(shipData);
+                    } 
+                    else if (data.MessageType === 'ShipStaticData') {
+                        var mmsi = meta.MMSI || msg.UserID;
+                        var length = 0;
+                        if (msg.Dimension) {
+                            length = (msg.Dimension.A || 0) + (msg.Dimension.B || 0);
+                        }
+                        saveShipInfo(mmsi, {
+                            name: msg.Name || meta.ShipName,
+                            type: msg.Type,
+                            destination: msg.Destination,
+                            length: length
+                        });
+                        if (liveShips[mmsi]) {
+                            liveShips[mmsi].name = msg.Name || meta.ShipName || liveShips[mmsi].name;
+                            liveShips[mmsi].type = msg.Type || liveShips[mmsi].type;
+                            liveShips[mmsi].destination = msg.Destination || liveShips[mmsi].destination;
+                            liveShips[mmsi].length = length || liveShips[mmsi].length;
+                            updateMarkerPopup(mmsi);
+                            updateUI();
+                        }
+                    }
+                    else if (data.MessageType === 'StandardClassBPositionReport') {
+                        var shipData = {
+                            mmsi: meta.MMSI || msg.UserID,
+                            lat: msg.Latitude,
+                            lng: msg.Longitude,
+                            speed: msg.Sog,
+                            course: msg.Cog,
+                            heading: msg.TrueHeading !== 511 ? msg.TrueHeading : msg.Cog,
+                            name: meta.ShipName,
+                            type: meta.ShipType
+                        };
+                        updateShipMarker(shipData);
+                    }
+                }
+            }
+
+            function setConnectionStatus(status) {
+                var dot = document.getElementById('status-dot');
+                var text = document.getElementById('status-text');
+                
+                dot.className = 'status-dot';
+                text.className = 'status-text';
+                
+                if (status === 'connected') {
+                    dot.classList.add('connected');
+                    text.classList.add('connected');
+                    text.textContent = 'Live verbonden';
+                } else if (status === 'connecting') {
+                    text.textContent = 'Verbinden...';
+                } else if (status === 'error') {
+                    dot.classList.add('error');
+                    text.textContent = 'Verbindingsfout';
+                } else {
+                    text.textContent = 'Opnieuw verbinden...';
+                }
+            }
+
+            // Type filter
+            document.querySelectorAll('.filter-chip').forEach(function(chip) {
+                chip.onclick = function() {
+                    document.querySelectorAll('.filter-chip').forEach(function(c) { c.classList.remove('active'); });
+                    chip.classList.add('active');
+                    activeType = chip.dataset.type;
+                    updateMarkerVisibility();
+                    updateShipList();
+                };
+            });
+
+            // Search
+            document.getElementById('search-input').addEventListener('input', function(e) {
+                searchQuery = e.target.value;
+                updateMarkerVisibility();
+                updateShipList();
+            });
+
+            // Controls
+            document.getElementById('zoom-in').onclick = function() { map.zoomIn(); };
+            document.getElementById('zoom-out').onclick = function() { map.zoomOut(); };
+            document.getElementById('center-map').onclick = function() { map.setView([51.95, 4.05], 11); };
+            document.getElementById('close-panel').onclick = function() {
+                document.getElementById('info-panel').classList.remove('visible');
+                selectedShip = null;
+                updateShipList();
+            };
+            document.getElementById('clear-db').onclick = function() {
+                if (confirm('Weet je zeker dat je alle opgeslagen scheepsnamen wilt wissen?')) {
+                    localStorage.removeItem('mijncruise_ships');
+                    shipDatabase = {};
+                    updateDbCount();
+                    alert('Database gewist!');
+                }
+            };
+
+            window.addEventListener('beforeunload', function() {
+                saveDatabase();
+            });
+
+            // Init
+            loadDatabase();
+            connectWebSocket();
+
+        })();
+    </script>
+</body>
+</html>
